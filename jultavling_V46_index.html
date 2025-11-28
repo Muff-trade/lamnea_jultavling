@@ -902,26 +902,43 @@
 
       <!-- Admin view -->
       <section class="view" id="admin-view">
-        <h2 data-i18n="admin_title">Admin – hantera deltagare</h2>
-        <p class="admin-note" data-i18n="admin_info">
-          Här kan du ta bort deltagare per kategori. Alla röster på borttagna bidrag rensas.
-        </p>
+          <h2 data-i18n="admin_title">Admin – hantera deltagare</h2>
+          <p class="admin-note" data-i18n="admin_info">
+              Här kan du ta bort deltagare per kategori. Alla röster på borttagna bidrag rensas.
+          </p>
 
-        <!-- Voting lock controls -->
-        <p class="admin-note" id="admin-vote-lock-status"></p>
-        <div style="margin:4px 0 12px 0; display:flex; flex-wrap:wrap; gap:8px;">
-          <button class="button small" id="btn-toggle-vote-lock">
-            <!-- text sätts i JS -->
-          </button>
-        </div>
+          <!-- Voting lock controls -->
+          <p class="admin-note" id="admin-vote-lock-status"></p>
+          <div style="margin:4px 0 12px 0; display:flex; flex-wrap:wrap; gap:8px;">
+              <button class="button small" id="btn-toggle-vote-lock">
+                  <!-- text sätts i JS -->
+              </button>
+          </div>
 
-        <div id="admin-sections"></div>
+          <!-- NYTT: export/import-kontroller -->
+          <p class="admin-note" data-i18n="admin_export_info">
+              Exportera eller importera alla anmälningar, röster och röstningsläge.
+          </p>
+          <div style="margin:4px 0 8px 0; display:flex; flex-wrap:wrap; gap:8px;">
+              <button class="button small secondary" id="btn-export-data" data-i18n="admin_export_btn">
+                  Exportera data (JSON)
+              </button>
+              <button class="button small secondary" id="btn-import-data" data-i18n="admin_import_btn">
+                  Importera data (JSON)
+              </button>
+              <input type="file" id="import-file" accept="application/json" style="display:none;" />
+          </div>
+          <div class="message" id="admin-export-message"></div>
+          <!-- SLUT NYTT -->
 
-        <div style="margin-top:12px;">
-          <button class="button small secondary" id="btn-admin-back" data-i18n="admin_btn_back">
-            Tillbaka till start
-          </button>
-        </div>
+          <div id="admin-sections"></div>
+
+
+          <div style="margin-top:12px;">
+              <button class="button small secondary" id="btn-admin-back" data-i18n="admin_btn_back">
+                  Tillbaka till start
+              </button>
+          </div>
       </section>
 
       <footer data-i18n="footer_text">
@@ -1030,6 +1047,16 @@
         admin_remove_button: "Ta bort",
         admin_remove_confirm:
           'Ta bort "{NAME}" från "{CATEGORY}"? Alla röster på detta bidrag tas bort.',
+
+              admin_export_info:
+          "Exportera eller importera alla anmälningar, röster och röstningsläge. Filen kan sparas som backup eller flyttas till en annan dator.",
+        admin_export_btn: "Exportera data (JSON)",
+        admin_import_btn: "Importera data (JSON)",
+        admin_export_success: "Data har exporterats – en JSON-fil laddades ner.",
+        admin_import_success:
+          "Data har importerats. Anmälningar, röster och röstningsläge har uppdaterats.",
+        admin_import_error:
+          "Kunde inte läsa filen. Kontrollera att det är en giltig export-fil från jultröjetävlingen.",
 
         admin_votelock_status_locked:
           "Röstning: STÄNGD – deltagarna kan inte rösta just nu.",
@@ -1141,6 +1168,16 @@
         admin_remove_button: "Remove",
         admin_remove_confirm:
           'Remove "{NAME}" from "{CATEGORY}"? All votes for this entry will be cleared.',
+
+              admin_export_info:
+          "Export or import all entries, votes and the voting lock state. Use this file as a backup or move the data to another computer.",
+        admin_export_btn: "Export data (JSON)",
+        admin_import_btn: "Import data (JSON)",
+        admin_export_success: "Data exported – a JSON file was downloaded.",
+        admin_import_success:
+          "Data imported. Entries, votes and voting lock state have been updated.",
+        admin_import_error:
+          "Could not read the file. Please make sure it is a valid export file from the sweater competition.",
 
         admin_votelock_status_locked:
           "Voting: CLOSED – participants cannot vote right now.",
@@ -1475,6 +1512,13 @@
 
     const adminVoteLockStatusEl = document.getElementById("admin-vote-lock-status");
     const btnToggleVoteLock = document.getElementById("btn-toggle-vote-lock");
+
+    // NYTT: export/import
+    const btnExportData = document.getElementById("btn-export-data");
+    const btnImportData = document.getElementById("btn-import-data");
+    const importFileInput = document.getElementById("import-file");
+    const adminExportMessageEl = document.getElementById("admin-export-message");
+
 
     let selectedEnterCategoryId = CATEGORIES[0].id;
     let selectedVoteCategoryId = CATEGORIES[0].id;
@@ -2037,6 +2081,76 @@
       updateVoteLockUI();
     }
 
+          // ---------- EXPORT / IMPORT AV DATA ----------
+
+    function exportAllData() {
+      if (!isAdmin) return;
+
+      const data = {
+        entries,
+        votes,
+        votingLocked
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json"
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      a.href = url;
+      a.download = "lamnea_jultra_data_" + stamp + ".json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      if (adminExportMessageEl) {
+        adminExportMessageEl.textContent = t("admin_export_success");
+        adminExportMessageEl.className = "message success";
+      }
+    }
+
+    function importAllDataFromFile(file) {
+      if (!isAdmin || !file) return;
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (!data || !Array.isArray(data.entries) || !Array.isArray(data.votes)) {
+            throw new Error("Bad format");
+          }
+
+          entries = data.entries;
+          votes = data.votes;
+          votingLocked = !!data.votingLocked;
+
+          saveJson(STORAGE_KEYS.entries, entries);
+          saveJson(STORAGE_KEYS.votes, votes);
+          saveVotingLock();
+
+          renderEntriesView();
+          renderAdminView();
+          renderVoteList();
+          updateEnterStatus();
+
+          if (adminExportMessageEl) {
+            adminExportMessageEl.textContent = t("admin_import_success");
+            adminExportMessageEl.className = "message success";
+          }
+        } catch (err) {
+          console.error(err);
+          if (adminExportMessageEl) {
+            adminExportMessageEl.textContent = t("admin_import_error");
+            adminExportMessageEl.className = "message error";
+          }
+        }
+      };
+      reader.readAsText(file);
+    }
+
+
     // ---------- LOGIN / LOGOUT / ADMIN ----------
 
     function handleLogin() {
@@ -2141,6 +2255,36 @@
       updateVoteLockUI();
       renderVoteList();
     });
+
+    // NYTT: export/import-knappar
+    if (btnExportData) {
+      btnExportData.addEventListener("click", () => {
+        if (adminExportMessageEl) {
+          adminExportMessageEl.textContent = "";
+          adminExportMessageEl.className = "message";
+        }
+        exportAllData();
+      });
+    }
+
+    if (btnImportData && importFileInput) {
+      btnImportData.addEventListener("click", () => {
+        if (adminExportMessageEl) {
+          adminExportMessageEl.textContent = "";
+          adminExportMessageEl.className = "message";
+        }
+        importFileInput.value = "";
+        importFileInput.click();
+      });
+
+      importFileInput.addEventListener("change", () => {
+        const file = importFileInput.files[0];
+        if (file) {
+          importAllDataFromFile(file);
+        }
+      });
+    }
+
 
     function updateAllOnLoad() {
       if (currentUser && !findEmployeeById(currentUser.employeeId)) {
