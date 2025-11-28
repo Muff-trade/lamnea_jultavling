@@ -2111,44 +2111,105 @@
       }
     }
 
-    function importAllDataFromFile(file) {
-      if (!isAdmin || !file) return;
+function importAllDataFromFile(file) {
+  if (!isAdmin || !file) return;
 
-      const reader = new FileReader();
-      reader.onload = e => {
-        try {
-          const data = JSON.parse(e.target.result);
-          if (!data || !Array.isArray(data.entries) || !Array.isArray(data.votes)) {
-            throw new Error("Bad format");
-          }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || !Array.isArray(data.entries) || !Array.isArray(data.votes)) {
+        throw new Error("Bad format");
+      }
 
-          entries = data.entries;
-          votes = data.votes;
-          votingLocked = !!data.votingLocked;
+      // ---- MERGE ENTRIES (anmälningar) ----
+      // Gör en set för befintliga entries baserat på employeeId + categoryId
+      const entryKey = (empId, catId) => empId + "___" + catId;
 
-          saveJson(STORAGE_KEYS.entries, entries);
-          saveJson(STORAGE_KEYS.votes, votes);
-          saveVotingLock();
+      const existingEntryKeys = new Set(
+        entries.map(en => entryKey(en.employeeId, en.categoryId))
+      );
 
-          renderEntriesView();
-          renderAdminView();
-          renderVoteList();
-          updateEnterStatus();
-
-          if (adminExportMessageEl) {
-            adminExportMessageEl.textContent = t("admin_import_success");
-            adminExportMessageEl.className = "message success";
-          }
-        } catch (err) {
-          console.error(err);
-          if (adminExportMessageEl) {
-            adminExportMessageEl.textContent = t("admin_import_error");
-            adminExportMessageEl.className = "message error";
-          }
+      data.entries.forEach(en => {
+        const empId = en.employeeId;
+        const catId = en.categoryId;
+        if (empId == null || !catId) return;
+        const key = entryKey(empId, catId);
+        // lägg bara till om entryt inte redan finns
+        if (!existingEntryKeys.has(key)) {
+          entries.push({ employeeId: empId, categoryId: catId });
+          existingEntryKeys.add(key);
         }
-      };
-      reader.readAsText(file);
+      });
+
+      // ---- MERGE VOTES (röster) ----
+      // Vi använder en map där nyckeln är (employeeId + categoryId)
+      // = en röst per person och kategori.
+      const voteKey = (empId, catId) => empId + "___" + catId;
+
+      const voteMap = new Map();
+      // Börja med existerande röster
+      votes.forEach(v => {
+        const empId = v.employeeId;
+        const catId = v.categoryId;
+        const entryEmp = v.entryEmployeeId;
+        if (empId == null || !catId || entryEmp == null) return;
+        voteMap.set(voteKey(empId, catId), {
+          employeeId: empId,
+          categoryId: catId,
+          entryEmployeeId: entryEmp
+        });
+      });
+
+      // Lägg sedan in imported votes – dessa får skriva över vid konflikt
+      data.votes.forEach(v => {
+        const empId = v.employeeId;
+        const catId = v.categoryId;
+        const entryEmp = v.entryEmployeeId;
+        if (empId == null || !catId || entryEmp == null) return;
+        voteMap.set(voteKey(empId, catId), {
+          employeeId: empId,
+          categoryId: catId,
+          entryEmployeeId: entryEmp
+        });
+      });
+
+      // Bygg om votes-arrayen från mapen
+      votes = Array.from(voteMap.values());
+
+      // ---- MERGE votingLocked (behöver egentligen inte, men för fullständighet) ----
+      // Exempel: om någon fil har röstningen öppen -> vi kan välja att behålla nuvarande
+      // eller använda imported värde. Här väljer vi att behålla nuvarande state.
+      // Vill du ta imported istället kan du byta till: votingLocked = !!data.votingLocked;
+      votingLocked = votingLocked;
+
+      // Spara till localStorage
+      saveJson(STORAGE_KEYS.entries, entries);
+      saveJson(STORAGE_KEYS.votes, votes);
+      saveVotingLock && saveVotingLock();
+
+      // Uppdatera vyer
+      renderEntriesView();
+      renderAdminView();
+      renderVoteList();
+      updateEnterStatus();
+
+      if (adminExportMessageEl) {
+        adminExportMessageEl.textContent = t("admin_import_success");
+        adminExportMessageEl.className = "message success";
+      }
+    } catch (err) {
+      console.error(err);
+      if (adminExportMessageEl) {
+        adminExportMessageEl.textContent = t("admin_import_error");
+        adminExportMessageEl.className = "message error";
+      }
     }
+  };
+
+  reader.readAsText(file);
+}
+
 
 
     // ---------- LOGIN / LOGOUT / ADMIN ----------
